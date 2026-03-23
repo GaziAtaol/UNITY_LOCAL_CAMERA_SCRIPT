@@ -2,44 +2,63 @@ using UnityEngine;
 using Unity.Netcode;
 
 /// <summary>
-/// Local player camera - Sadece owner'ın camera'sı aktif olur
-/// Diğer oyuncuların camera'ları disable edilir
+/// Manages the local player camera and audio listener in a Unity Netcode for GameObjects
+/// multiplayer session. Only the owning client's camera and audio listener are enabled;
+/// all remote players' cameras are disabled automatically.
 /// </summary>
 [RequireComponent(typeof(Camera))]
+[DisallowMultipleComponent]
 public class LocalPlayerCamera : NetworkBehaviour
 {
     private Camera cam;
     private AudioListener audioListener;
-    
+
     private void Awake()
     {
         cam = GetComponent<Camera>();
+
+        // Search on this object first; fall back to parent hierarchy in case the
+        // AudioListener lives on the player root rather than the camera child.
         audioListener = GetComponent<AudioListener>();
+        if (audioListener == null)
+        {
+            audioListener = GetComponentInParent<AudioListener>();
+        }
     }
-    
+
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        
-        // Parent'taki NetworkBehaviour'u bul (Player)
-        NetworkBehaviour parentNetworkBehaviour = GetComponentInParent<NetworkBehaviour>();
-        
-        if (parentNetworkBehaviour == null)
+
+        // IsOwner is provided directly by NetworkBehaviour and correctly reflects
+        // whether this client owns the spawned object.
+        SetCameraState(IsOwner);
+
+        Debug.Log($"[LocalPlayerCamera] Camera {(IsOwner ? "ENABLED" : "DISABLED")} - IsOwner: {IsOwner}", this);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        // Ensure the camera and audio listener are disabled when the network object
+        // is despawned (e.g., player disconnects or the session ends).
+        SetCameraState(false);
+        base.OnNetworkDespawn();
+    }
+
+    private void SetCameraState(bool active)
+    {
+        if (cam != null)
         {
-            Debug.LogError("[LocalPlayerCamera] Parent NetworkBehaviour bulunamadı!", this);
-            return;
+            cam.enabled = active;
         }
-        
-        bool isOwner = parentNetworkBehaviour.IsOwner;
-        
-        // Sadece owner'ın camera'sı aktif
-        cam.enabled = isOwner;
-        
+        else
+        {
+            Debug.LogWarning("[LocalPlayerCamera] Camera component not found on this GameObject!", this);
+        }
+
         if (audioListener != null)
         {
-            audioListener.enabled = isOwner;
+            audioListener.enabled = active;
         }
-        
-        Debug.Log($"[LocalPlayerCamera] Camera {(isOwner ? "ENABLED" : "DISABLED")} - IsOwner: {isOwner}", this);
     }
 }
